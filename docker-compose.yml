@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+    ports:
+      - "80:80"
+      - "8080:8080"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik.yml:/etc/traefik/traefik.yml
+      - ./dynamic_conf.yml:/etc/traefik/dynamic_conf.yml
+    networks:
+      - traefik-net
+
+  account-service:
+    build:
+      context: ./account-service
+      dockerfile: Dockerfile
+    volumes:
+      - type: bind
+        source: ./account-service
+        target: /app
+        read_only: true
+      - go-modules:/go/pkg/mod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.account.rule=PathPrefix(`/api/accounts`)"
+      - "traefik.http.services.account.loadbalancer.server.port=8081"
+    networks:
+      - traefik-net
+
+  transaction-service:
+    build:
+      context: ./transaction-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./transaction-service:/app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transaction.rule=PathPrefix(`/api/transactions`)"
+      - "traefik.http.services.transaction.loadbalancer.server.port=8082"
+    environment:
+      - FLASK_ENV=production
+      - FLASK_APP=app.py
+    networks:
+      - traefik-net
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.client.rule=PathPrefix(`/`)"
+      - "traefik.http.services.client.loadbalancer.server.port=3000"
+    ports:
+      - "3000:3000"
+    networks:
+      - traefik-net
+
+networks:
+  traefik-net:
+    driver: bridge
+
+volumes:
+  go-modules:
